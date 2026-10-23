@@ -77,9 +77,14 @@
     .auth-modes { display: flex; gap: 8px; }
     .auth-modes button { margin-bottom: 10px; }
     .auth-modes button[aria-pressed="true"] { background: #176b3a; color: white; }
+    .account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .account-row p { margin: 0; }
     .profile { padding: 12px 0; border-top: 1px solid #e3eae4; }
+    .profile-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .profile-heading-row h3 { margin: 0; }
+    .profile [hidden] { display: none; }
     .profile p { margin: 6px 0; }
-    .profile-actions { display: flex; gap: 8px; }
+    .profile-actions { display: flex; }
 
     .hint, #status { color: #526257; }
     #status { min-height: 1.5em; }
@@ -111,8 +116,6 @@
 <body>
   <main>
     <h1>VIBE Freelance</h1>
-    <p>Sign in, save a text entry, and read your own entries back.</p>
-    <p id="status" role="status" aria-live="polite"></p>
 
     <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
       <h2 id="auth-heading">Sign in</h2>
@@ -143,20 +146,25 @@
     </section>
 
     <section id="data-panel" class="card" aria-labelledby="data-heading" hidden>
-      <h2 id="data-heading">Save and read text</h2>
-      <p id="signed-in-user" class="hint"></p>
+      <div class="account-row">
+        <p id="signed-in-user" class="hint"></p>
+        <button id="sign-out-button" class="secondary" type="button">Sign out</button>
+      </div>
       <section class="profile" aria-labelledby="profile-heading">
-        <h3 id="profile-heading">Profile</h3>
-        <p><strong>Account type:</strong> <span id="profile-account-type"></span></p>
-        <form id="profile-form">
-          <label for="profile-name">Name</label>
-          <input id="profile-name" type="text" autocomplete="name" maxlength="100" required disabled>
-          <label for="profile-company">Company</label>
-          <input id="profile-company" type="text" autocomplete="organization" maxlength="100" required disabled>
+        <div class="profile-heading-row">
+          <h3 id="profile-heading">Profile</h3>
           <div class="profile-actions">
             <button id="profile-edit-button" type="button">Edit</button>
-            <button id="sign-out-button" class="secondary" type="button">Sign out</button>
           </div>
+        </div>
+        <p><strong>Account type:</strong> <span id="profile-account-type"></span></p>
+        <form id="profile-form">
+          <p id="profile-name-display-row"><strong>Name:</strong> <span id="profile-name-display"></span></p>
+          <label id="profile-name-label" for="profile-name" hidden>Name</label>
+          <input id="profile-name" type="text" autocomplete="name" maxlength="100" required disabled hidden>
+          <p id="profile-company-display-row"><strong>Company:</strong> <span id="profile-company-display"></span></p>
+          <label id="profile-company-label" for="profile-company" hidden>Company</label>
+          <input id="profile-company" type="text" autocomplete="organization" maxlength="100" required disabled hidden>
         </form>
         <p><strong>Rating:</strong> <span id="profile-display-rating"></span></p>
         <p><strong>VIP:</strong> <span id="profile-display-vip"></span></p>
@@ -170,6 +178,7 @@
       <h3>Your latest entries</h3>
       <div id="entries" aria-live="polite"></div>
     </section>
+    <p id="status" role="status" aria-live="polite"></p>
 
   </main>
 
@@ -223,6 +232,8 @@
         profile.account_type === "freelancer" ? "Freelancer" : "Business";
       document.querySelector("#profile-name").value = profile.full_name || "";
       document.querySelector("#profile-company").value = profile.company || "";
+      document.querySelector("#profile-name-display").textContent = profile.full_name || "Not set";
+      document.querySelector("#profile-company-display").textContent = profile.company || "Not set";
       document.querySelector("#profile-display-rating").textContent =
         Number.isInteger(profile.rating) && profile.rating >= 1 && profile.rating <= 10 ? `${profile.rating}/10` : "Not rated";
       document.querySelector("#profile-display-vip").textContent = profile.vip_status === true ? "Yes" : "No";
@@ -271,6 +282,12 @@
       profileEditing = editing;
       document.querySelector("#profile-name").disabled = !editing;
       document.querySelector("#profile-company").disabled = !editing;
+      document.querySelector("#profile-name").hidden = !editing;
+      document.querySelector("#profile-company").hidden = !editing;
+      document.querySelector("#profile-name-label").hidden = !editing;
+      document.querySelector("#profile-company-label").hidden = !editing;
+      document.querySelector("#profile-name-display-row").hidden = editing;
+      document.querySelector("#profile-company-display-row").hidden = editing;
       const button = document.querySelector("#profile-edit-button");
       button.textContent = editing ? "Save" : "Edit";
     }
