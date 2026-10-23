@@ -99,20 +99,8 @@
 <body>
   <main>
     <h1>Supabase text test</h1>
-    <p>Connect to your Supabase project, sign in, save a text entry, and read your own entries back.</p>
-
-    <section class="card" aria-labelledby="connection-heading">
-      <h2 id="connection-heading">1. Connect</h2>
-      <p class="hint">Use your project URL and a publishable key (or legacy anon key). Never use a database password or secret/service-role key in this page.</p>
-      <form id="connection-form">
-        <label for="project-url">Project URL</label>
-        <input id="project-url" type="url" placeholder="https://your-project-ref.supabase.co" required>
-        <label for="publishable-key">Publishable / anon key</label>
-        <input id="publishable-key" type="password" autocomplete="off" required>
-        <button type="submit">Connect</button>
-        <p id="status" role="status" aria-live="polite"></p>
-      </form>
-    </section>
+    <p>Sign in, save a text entry, and read your own entries back.</p>
+    <p id="status" role="status" aria-live="polite"></p>
 
     <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
       <h2 id="auth-heading">2. Sign in</h2>
@@ -146,8 +134,8 @@
   <script type="module">
     import { createClient } from "https://esm.sh/@supabase/supabase-js@2.118.0";
 
-    const configKey = "supabase-text-test-config";
-    const connectionForm = document.querySelector("#connection-form");
+    const supabaseUrl = "https://mbgtgccebyooktzxuviu.supabase.co";
+    const supabasePublishableKey = "sb_publishable_-e035fsg3lFIJqUdcZbWSg_OXxAjZyT";
     const authPanel = document.querySelector("#auth-panel");
     const authForm = document.querySelector("#auth-form");
     const dataPanel = document.querySelector("#data-panel");
@@ -227,28 +215,15 @@
       }
     }
 
-    connectionForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const url = document.querySelector("#project-url").value.trim().replace(/\/+$/, "");
-      const key = document.querySelector("#publishable-key").value.trim();
-
+    async function connectSupabase() {
+      setStatus("Connecting to Supabase...");
       try {
-        const parsedUrl = new URL(url);
-        if (parsedUrl.protocol !== "https:") {
-          throw new Error("Use the HTTPS project URL shown in your Supabase project settings.");
-        }
-        if (!key || /service[_-]?role|secret/i.test(key)) {
-          throw new Error("Use a publishable or anon key only. Secret and service-role keys are not safe in a browser.");
-        }
-
-        supabase = createClient(url, key);
-        localStorage.setItem(configKey, JSON.stringify({ url, key }));
-        document.querySelector("#publishable-key").value = "";
+        supabase = createClient(supabaseUrl, supabasePublishableKey);
         await updateSessionView();
       } catch (error) {
         reportError(error);
       }
-    });
+    }
 
     authForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -327,16 +302,7 @@
       }
     });
 
-    try {
-      const savedConfig = JSON.parse(localStorage.getItem(configKey) || "null");
-      if (savedConfig?.url && savedConfig?.key) {
-        document.querySelector("#project-url").value = savedConfig.url;
-        document.querySelector("#publishable-key").value = savedConfig.key;
-        setStatus("Project settings restored from this browser. Click Connect to continue.");
-      }
-    } catch (error) {
-      reportError(new Error(`Could not restore saved project settings: ${error.message}`));
-    }
+    connectSupabase();
   </script>
 </body>
 </html>
