@@ -28,7 +28,17 @@
     p { line-height: 1.5; }
     .page-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .page-header h1 { margin: 0; }
-    #header-user-name { margin: 0; text-align: right; overflow-wrap: anywhere; }
+    #header-user-name {
+      width: auto;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+    #header-user-name:hover { text-decoration: underline; }
 
     .card {
       margin-top: 20px;
@@ -82,7 +92,8 @@
     .auth-modes button[aria-pressed="true"] { background: #176b3a; color: white; }
     .account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .account-row p { margin: 0; }
-    .profile { padding: 12px 0; border-top: 1px solid #e3eae4; }
+    .profile { display: none; padding: 12px 0; border-top: 1px solid #e3eae4; }
+    .profile.visible { display: block; }
     .profile-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .profile-heading-row h3 { margin: 0; }
     .profile [hidden] { display: none; }
@@ -120,7 +131,7 @@
   <main>
     <header class="page-header">
       <h1>VIBE Freelance</h1>
-      <p id="header-user-name" class="hint" hidden></p>
+      <button id="header-user-name" class="hint" type="button" aria-controls="profile-panel" aria-expanded="false" hidden></button>
     </header>
 
     <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
@@ -156,7 +167,7 @@
         <p id="signed-in-user" class="hint"></p>
         <button id="sign-out-button" class="secondary" type="button">Sign out</button>
       </div>
-      <section class="profile" aria-labelledby="profile-heading">
+      <section id="profile-panel" class="profile" aria-labelledby="profile-heading">
         <div class="profile-heading-row">
           <h3 id="profile-heading">Profile</h3>
           <div class="profile-actions">
@@ -361,6 +372,8 @@
         const headerUserName = document.querySelector("#header-user-name");
         headerUserName.textContent = "";
         headerUserName.hidden = true;
+        headerUserName.setAttribute("aria-expanded", "false");
+        document.querySelector("#profile-panel").classList.remove("visible");
         entries.replaceChildren();
         setStatus("Connected. Sign in to continue.", "success");
         return;
@@ -432,6 +445,13 @@
 
     document.querySelector("#signin-mode").addEventListener("click", () => setAuthMode("signin"));
     document.querySelector("#register-mode").addEventListener("click", () => setAuthMode("register"));
+
+    document.querySelector("#header-user-name").addEventListener("click", (event) => {
+      const button = event.currentTarget;
+      const profile = document.querySelector("#profile-panel");
+      const visible = profile.classList.toggle("visible");
+      button.setAttribute("aria-expanded", String(visible));
+    });
 
     document.querySelector("#profile-edit-button").addEventListener("click", () => {
       if (profileEditing) {
