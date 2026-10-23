@@ -122,7 +122,7 @@
           <button id="signin-mode" class="secondary" type="button" aria-pressed="true">Sign in</button>
           <button id="register-mode" class="secondary" type="button" aria-pressed="false">Register</button>
         </div>
-        <fieldset id="signup-fields" hidden>
+        <fieldset id="signup-fields" hidden disabled>
           <legend>Profile</legend>
           <fieldset class="role-options">
             <legend>Join as</legend>
@@ -187,6 +187,7 @@
     let supabase = null;
     let authMode = "signin";
     let currentUser = null;
+    let profileEditing = false;
 
     function setStatus(message, kind = "") {
       status.textContent = message;
@@ -206,7 +207,9 @@
       authMode = mode;
       const registering = mode === "register";
       document.querySelector("#auth-heading").textContent = registering ? "Create account" : "Sign in";
-      document.querySelector("#signup-fields").hidden = !registering;
+      const signupFields = document.querySelector("#signup-fields");
+      signupFields.hidden = !registering;
+      signupFields.disabled = !registering;
       document.querySelector("#auth-submit").textContent = registering ? "Register" : "Sign in";
       document.querySelector("#signin-mode").setAttribute("aria-pressed", String(!registering));
       document.querySelector("#register-mode").setAttribute("aria-pressed", String(registering));
@@ -228,10 +231,10 @@
     }
 
     function setProfileEditing(editing) {
+      profileEditing = editing;
       document.querySelector("#profile-name").disabled = !editing;
       document.querySelector("#profile-company").disabled = !editing;
       const button = document.querySelector("#profile-edit-button");
-      button.type = editing ? "submit" : "button";
       button.textContent = editing ? "Save" : "Edit";
     }
 
@@ -349,8 +352,12 @@
     document.querySelector("#register-mode").addEventListener("click", () => setAuthMode("register"));
 
     document.querySelector("#profile-edit-button").addEventListener("click", () => {
-      setProfileEditing(true);
-      document.querySelector("#profile-name").focus();
+      if (profileEditing) {
+        document.querySelector("#profile-form").requestSubmit();
+      } else {
+        setProfileEditing(true);
+        document.querySelector("#profile-name").focus();
+      }
     });
 
     document.querySelector("#profile-form").addEventListener("submit", async (event) => {
