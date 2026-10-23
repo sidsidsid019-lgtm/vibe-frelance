@@ -170,9 +170,14 @@
         <p><strong>VIP:</strong> <span id="profile-display-vip"></span></p>
       </section>
       <form id="text-form">
-        <label for="text-content">Text to save</label>
-        <textarea id="text-content" maxlength="5000" required placeholder="Write a test message..."></textarea>
-        <button type="submit">Save</button>
+        <h3>Create VIBE</h3>
+        <label for="vibe-project">Project</label>
+        <input id="vibe-project" type="text" maxlength="200" required>
+        <label for="vibe-prompt">Prompt</label>
+        <textarea id="vibe-prompt" maxlength="5000" required placeholder="Describe what you need..."></textarea>
+        <label for="vibe-other">Other</label>
+        <textarea id="vibe-other" maxlength="5000" placeholder="Additional details (optional)..."></textarea>
+        <button type="submit">Create VIBE</button>
         <button id="refresh-button" class="secondary" type="button">Read again</button>
       </form>
       <h3>Your latest entries</h3>
@@ -296,7 +301,7 @@
       if (!supabase) return;
       const { data, error } = await supabase
         .from("api_test_texts")
-        .select("id, content, created_at")
+        .select("id, content, project, prompt, other, created_at")
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -306,7 +311,7 @@
       if (!data.length) {
         const empty = document.createElement("p");
         empty.className = "hint";
-        empty.textContent = "No entries yet. Save a text above to create one.";
+        empty.textContent = "No VIBEs yet. Create one above.";
         entries.append(empty);
         return;
       }
@@ -318,8 +323,16 @@
         time.dateTime = item.created_at;
         time.textContent = new Date(item.created_at).toLocaleString();
         const content = document.createElement("div");
-        content.textContent = item.content;
-        article.append(time, content);
+        const project = document.createElement("p");
+        project.textContent = `Project: ${item.project || "Not set"}`;
+        const prompt = document.createElement("p");
+        prompt.textContent = `Prompt: ${item.prompt || item.content}`;
+        article.append(time, project, prompt);
+        if (item.other) {
+          const other = document.createElement("p");
+          other.textContent = `Other: ${item.other}`;
+          article.append(other);
+        }
         entries.append(article);
       }
     }
@@ -453,21 +466,23 @@
 
     textForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const content = document.querySelector("#text-content").value.trim();
-      if (!content) return;
+      const project = document.querySelector("#vibe-project").value.trim();
+      const prompt = document.querySelector("#vibe-prompt").value.trim();
+      const other = document.querySelector("#vibe-other").value.trim();
+      if (!project || !prompt) return;
 
       try {
         const { error } = await supabase
           .from("api_test_texts")
-          .insert({ content });
+          .insert({ content: prompt, project, prompt, other });
         if (error) {
           reportError(error);
           return;
         }
 
-        document.querySelector("#text-content").value = "";
+        textForm.reset();
         await readTexts();
-        setStatus("Text saved.", "success");
+        setStatus("VIBE created.", "success");
       } catch (error) {
         reportError(error);
       }
