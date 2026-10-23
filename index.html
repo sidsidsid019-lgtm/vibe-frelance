@@ -69,9 +69,16 @@
 
     button:disabled { cursor: wait; opacity: .6; }
 
-    .role-options { display: flex; gap: 16px; margin: 12px 0; }
+    fieldset { border: 0; padding: 0; margin: 0; }
+    .role-options { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 12px 0; }
+    .role-options legend { width: 100%; }
     .role-options label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; }
     .role-options input { width: auto; padding: 0; }
+    .auth-modes { display: flex; gap: 8px; }
+    .auth-modes button { margin-bottom: 10px; }
+    .auth-modes button[aria-pressed="true"] { background: #176b3a; color: white; }
+    .profile { padding: 12px 0; border-top: 1px solid #e3eae4; }
+    .profile p { margin: 6px 0; }
 
     .hint, #status { color: #526257; }
     #status { min-height: 1.5em; }
@@ -110,23 +117,41 @@
       <h2 id="auth-heading">Sign in</h2>
       <p class="hint">Sign in or create your freelancer market account.</p>
       <form id="auth-form">
+        <div class="auth-modes" aria-label="Account access">
+          <button id="signin-mode" class="secondary" type="button" aria-pressed="true">Sign in</button>
+          <button id="register-mode" class="secondary" type="button" aria-pressed="false">Register</button>
+        </div>
+        <fieldset id="signup-fields" hidden>
+          <legend>Profile</legend>
+          <fieldset class="role-options">
+            <legend>Join as</legend>
+            <label><input type="radio" name="account-type" value="business" checked> Business</label>
+            <label><input type="radio" name="account-type" value="freelancer"> Freelancer</label>
+          </fieldset>
+          <label for="profile-name">Name</label>
+          <input id="profile-name" type="text" autocomplete="name" maxlength="100" required>
+          <label for="profile-company">Company</label>
+          <input id="profile-company" type="text" autocomplete="organization" maxlength="100" required>
+        </fieldset>
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required>
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" minlength="6" required>
-        <button type="submit" name="action" value="signin">Sign in</button>
-        <fieldset class="role-options">
-          <legend>Join as</legend>
-          <label><input type="radio" name="account-type" value="business" checked> Business</label>
-          <label><input type="radio" name="account-type" value="freelancer"> Freelancer</label>
-        </fieldset>
-        <button class="secondary" type="submit" name="action" value="signup">Register</button>
+        <button id="auth-submit" type="submit">Sign in</button>
       </form>
     </section>
 
     <section id="data-panel" class="card" aria-labelledby="data-heading" hidden>
       <h2 id="data-heading">Save and read text</h2>
       <p id="signed-in-user" class="hint"></p>
+      <section class="profile" aria-labelledby="profile-heading">
+        <h3 id="profile-heading">Profile</h3>
+        <p><strong>Account type:</strong> <span id="profile-account-type"></span></p>
+        <p><strong>Name:</strong> <span id="profile-display-name"></span></p>
+        <p><strong>Company:</strong> <span id="profile-display-company"></span></p>
+        <p><strong>Rating:</strong> <span id="profile-display-rating"></span></p>
+        <p><strong>VIP:</strong> <span id="profile-display-vip"></span></p>
+      </section>
       <form id="text-form">
         <label for="text-content">Text to save</label>
         <textarea id="text-content" maxlength="5000" required placeholder="Write a test message..."></textarea>
@@ -152,6 +177,7 @@
     const entries = document.querySelector("#entries");
     const status = document.querySelector("#status");
     let supabase = null;
+    let authMode = "signin";
 
     function setStatus(message, kind = "") {
       status.textContent = message;
@@ -165,6 +191,29 @@
 
     function reportError(error) {
       setStatus(error?.message || "The request failed. Check the project URL, key, table setup, and RLS policies.", "error");
+    }
+
+    function setAuthMode(mode) {
+      authMode = mode;
+      const registering = mode === "register";
+      document.querySelector("#auth-heading").textContent = registering ? "Create account" : "Sign in";
+      document.querySelector("#signup-fields").hidden = !registering;
+      document.querySelector("#auth-submit").textContent = registering ? "Register" : "Sign in";
+      document.querySelector("#signin-mode").setAttribute("aria-pressed", String(!registering));
+      document.querySelector("#register-mode").setAttribute("aria-pressed", String(registering));
+      document.querySelector("#password").autocomplete = registering ? "new-password" : "current-password";
+    }
+
+    function showProfile(user) {
+      const profile = user.user_metadata || {};
+      const accountType = profile.account_type;
+      document.querySelector("#profile-account-type").textContent =
+        accountType === "freelancer" ? "Freelancer" : accountType === "business" ? "Business" : "Not set";
+      document.querySelector("#profile-display-name").textContent = profile.full_name || "Not set";
+      document.querySelector("#profile-display-company").textContent = profile.company || "Not set";
+      document.querySelector("#profile-display-rating").textContent =
+        Number.isInteger(profile.rating) && profile.rating >= 1 && profile.rating <= 10 ? `${profile.rating}/10` : "Not rated";
+      document.querySelector("#profile-display-vip").textContent = profile.vip_status === true ? "Yes" : "No";
     }
 
     async function readTexts() {
@@ -216,6 +265,7 @@
 
       showPanel("data");
       document.querySelector("#signed-in-user").textContent = `Signed in as ${data.session.user.email || "user"}`;
+      showProfile(data.session.user);
       try {
         await readTexts();
         setStatus("Connected. Your entries are loaded.", "success");
@@ -241,16 +291,20 @@
         return;
       }
 
-      const button = event.submitter;
       const email = document.querySelector("#email").value.trim();
       const passwordInput = document.querySelector("#password");
-      const accountType = document.querySelector('input[name="account-type"]:checked').value;
       try {
-        const result = button.value === "signup"
+        const result = authMode === "register"
           ? await supabase.auth.signUp({
             email,
             password: passwordInput.value,
-            options: { data: { account_type: accountType } }
+            options: {
+              data: {
+                account_type: document.querySelector('input[name="account-type"]:checked').value,
+                full_name: document.querySelector("#profile-name").value.trim(),
+                company: document.querySelector("#profile-company").value.trim()
+              }
+            }
           })
           : await supabase.auth.signInWithPassword({ email, password: passwordInput.value });
         passwordInput.value = "";
@@ -260,7 +314,7 @@
           return;
         }
 
-        if (button.value === "signup" && !result.data.session) {
+        if (authMode === "register" && !result.data.session) {
           setStatus("Signup received. Check your email for a confirmation link, then sign in.", "success");
           return;
         }
@@ -271,6 +325,9 @@
         reportError(error);
       }
     });
+
+    document.querySelector("#signin-mode").addEventListener("click", () => setAuthMode("signin"));
+    document.querySelector("#register-mode").addEventListener("click", () => setAuthMode("register"));
 
     textForm.addEventListener("submit", async (event) => {
       event.preventDefault();
