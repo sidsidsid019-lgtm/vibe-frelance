@@ -1,1 +1,342 @@
-Hi
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Supabase Text Test</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17211b;
+      background: #f3f7f4;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 32px 16px;
+    }
+
+    main {
+      width: min(100%, 760px);
+      margin: 0 auto;
+    }
+
+    h1 { margin: 0 0 8px; }
+    p { line-height: 1.5; }
+
+    .card {
+      margin-top: 20px;
+      padding: 20px;
+      border: 1px solid #d7e1d9;
+      border-radius: 12px;
+      background: #fff;
+      box-shadow: 0 4px 16px #173b2510;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 6px;
+      font-weight: 600;
+    }
+
+    input, textarea, button {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #bdcbbf;
+      border-radius: 7px;
+      font: inherit;
+    }
+
+    textarea { min-height: 110px; resize: vertical; }
+
+    button {
+      width: auto;
+      margin: 10px 8px 0 0;
+      border-color: #176b3a;
+      background: #176b3a;
+      color: white;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: #bdcbbf;
+      background: white;
+      color: #17211b;
+    }
+
+    button:disabled { cursor: wait; opacity: .6; }
+
+    .hint, #status { color: #526257; }
+    #status { min-height: 1.5em; }
+    #status.error { color: #a52323; }
+    #status.success { color: #176b3a; }
+    #auth-panel[hidden], #data-panel[hidden] { display: none; }
+
+    .entry {
+      padding: 12px 0;
+      border-top: 1px solid #e3eae4;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    .entry time {
+      display: block;
+      margin-bottom: 6px;
+      color: #64736a;
+      font-size: .85rem;
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 4px;
+      background: #eef3ef;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Supabase text test</h1>
+    <p>Connect to your Supabase project, sign in, save a text entry, and read your own entries back.</p>
+
+    <section class="card" aria-labelledby="connection-heading">
+      <h2 id="connection-heading">1. Connect</h2>
+      <p class="hint">Use your project URL and a publishable key (or legacy anon key). Never use a database password or secret/service-role key in this page.</p>
+      <form id="connection-form">
+        <label for="project-url">Project URL</label>
+        <input id="project-url" type="url" placeholder="https://your-project-ref.supabase.co" required>
+        <label for="publishable-key">Publishable / anon key</label>
+        <input id="publishable-key" type="password" autocomplete="off" required>
+        <button type="submit">Connect</button>
+        <p id="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
+      <h2 id="auth-heading">2. Sign in</h2>
+      <p class="hint">Create a test user or sign in with an existing account. If email confirmation is enabled, confirm the signup before signing in.</p>
+      <form id="auth-form">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" minlength="6" required>
+        <button type="submit" name="action" value="signin">Sign in</button>
+        <button class="secondary" type="submit" name="action" value="signup">Create test user</button>
+      </form>
+    </section>
+
+    <section id="data-panel" class="card" aria-labelledby="data-heading" hidden>
+      <h2 id="data-heading">3. Save and read text</h2>
+      <p id="signed-in-user" class="hint"></p>
+      <form id="text-form">
+        <label for="text-content">Text to save</label>
+        <textarea id="text-content" maxlength="5000" required placeholder="Write a test message..."></textarea>
+        <button type="submit">Save text</button>
+        <button id="refresh-button" class="secondary" type="button">Read again</button>
+        <button id="sign-out-button" class="secondary" type="button">Sign out</button>
+      </form>
+      <h3>Your latest entries</h3>
+      <div id="entries" aria-live="polite"></div>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2.118.0";
+
+    const configKey = "supabase-text-test-config";
+    const connectionForm = document.querySelector("#connection-form");
+    const authPanel = document.querySelector("#auth-panel");
+    const authForm = document.querySelector("#auth-form");
+    const dataPanel = document.querySelector("#data-panel");
+    const textForm = document.querySelector("#text-form");
+    const entries = document.querySelector("#entries");
+    const status = document.querySelector("#status");
+    let supabase = null;
+
+    function setStatus(message, kind = "") {
+      status.textContent = message;
+      status.className = kind;
+    }
+
+    function showPanel(panel) {
+      authPanel.hidden = panel !== "auth";
+      dataPanel.hidden = panel !== "data";
+    }
+
+    function reportError(error) {
+      setStatus(error?.message || "The request failed. Check the project URL, key, table setup, and RLS policies.", "error");
+    }
+
+    async function readTexts() {
+      if (!supabase) return;
+      const { data, error } = await supabase
+        .from("api_test_texts")
+        .select("id, content, created_at")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      entries.replaceChildren();
+      if (!data.length) {
+        const empty = document.createElement("p");
+        empty.className = "hint";
+        empty.textContent = "No entries yet. Save a text above to create one.";
+        entries.append(empty);
+        return;
+      }
+
+      for (const item of data) {
+        const article = document.createElement("article");
+        article.className = "entry";
+        const time = document.createElement("time");
+        time.dateTime = item.created_at;
+        time.textContent = new Date(item.created_at).toLocaleString();
+        const content = document.createElement("div");
+        content.textContent = item.content;
+        article.append(time, content);
+        entries.append(article);
+      }
+    }
+
+    async function updateSessionView() {
+      if (!supabase) return;
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        reportError(error);
+        return;
+      }
+
+      if (!data.session) {
+        showPanel("auth");
+        entries.replaceChildren();
+        setStatus("Connected. Sign in to continue.", "success");
+        return;
+      }
+
+      showPanel("data");
+      document.querySelector("#signed-in-user").textContent = `Signed in as ${data.session.user.email || "user"}`;
+      try {
+        await readTexts();
+        setStatus("Connected. Your entries are loaded.", "success");
+      } catch (readError) {
+        reportError(readError);
+      }
+    }
+
+    connectionForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const url = document.querySelector("#project-url").value.trim().replace(/\/+$/, "");
+      const key = document.querySelector("#publishable-key").value.trim();
+
+      try {
+        const parsedUrl = new URL(url);
+        if (parsedUrl.protocol !== "https:") {
+          throw new Error("Use the HTTPS project URL shown in your Supabase project settings.");
+        }
+        if (!key || /service[_-]?role|secret/i.test(key)) {
+          throw new Error("Use a publishable or anon key only. Secret and service-role keys are not safe in a browser.");
+        }
+
+        supabase = createClient(url, key);
+        localStorage.setItem(configKey, JSON.stringify({ url, key }));
+        document.querySelector("#publishable-key").value = "";
+        await updateSessionView();
+      } catch (error) {
+        reportError(error);
+      }
+    });
+
+    authForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!supabase) {
+        setStatus("Connect to Supabase first.", "error");
+        return;
+      }
+
+      const button = event.submitter;
+      const email = document.querySelector("#email").value.trim();
+      const passwordInput = document.querySelector("#password");
+      try {
+        const result = button.value === "signup"
+          ? await supabase.auth.signUp({ email, password: passwordInput.value })
+          : await supabase.auth.signInWithPassword({ email, password: passwordInput.value });
+        passwordInput.value = "";
+
+        if (result.error) {
+          reportError(result.error);
+          return;
+        }
+
+        if (button.value === "signup" && !result.data.session) {
+          setStatus("Signup received. Check your email for a confirmation link, then sign in.", "success");
+          return;
+        }
+
+        await updateSessionView();
+      } catch (error) {
+        passwordInput.value = "";
+        reportError(error);
+      }
+    });
+
+    textForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const content = document.querySelector("#text-content").value.trim();
+      if (!content) return;
+
+      try {
+        const { error } = await supabase
+          .from("api_test_texts")
+          .insert({ content });
+        if (error) {
+          reportError(error);
+          return;
+        }
+
+        document.querySelector("#text-content").value = "";
+        await readTexts();
+        setStatus("Text saved.", "success");
+      } catch (error) {
+        reportError(error);
+      }
+    });
+
+    document.querySelector("#refresh-button").addEventListener("click", async () => {
+      try {
+        await readTexts();
+        setStatus("Entries refreshed.", "success");
+      } catch (error) {
+        reportError(error);
+      }
+    });
+
+    document.querySelector("#sign-out-button").addEventListener("click", async () => {
+      try {
+        const { error } = await supabase.auth.signOut();
+        if (error) {
+          reportError(error);
+          return;
+        }
+        await updateSessionView();
+      } catch (error) {
+        reportError(error);
+      }
+    });
+
+    try {
+      const savedConfig = JSON.parse(localStorage.getItem(configKey) || "null");
+      if (savedConfig?.url && savedConfig?.key) {
+        document.querySelector("#project-url").value = savedConfig.url;
+        document.querySelector("#publishable-key").value = savedConfig.key;
+        setStatus("Project settings restored from this browser. Click Connect to continue.");
+      }
+    } catch (error) {
+      reportError(new Error(`Could not restore saved project settings: ${error.message}`));
+    }
+  </script>
+</body>
+</html>
