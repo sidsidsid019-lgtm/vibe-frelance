@@ -187,6 +187,7 @@
     let supabase = null;
     let authMode = "signin";
     let currentUser = null;
+    let currentProfile = null;
     let profileEditing = false;
 
     function setStatus(message, kind = "") {
@@ -216,18 +217,54 @@
       document.querySelector("#password").autocomplete = registering ? "new-password" : "current-password";
     }
 
-    function showProfile(user) {
+    function showProfile(user, profile) {
       currentUser = user;
-      const profile = user.user_metadata || {};
-      const accountType = profile.account_type;
       document.querySelector("#profile-account-type").textContent =
-        accountType === "freelancer" ? "Freelancer" : accountType === "business" ? "Business" : "Not set";
+        profile.account_type === "freelancer" ? "Freelancer" : "Business";
       document.querySelector("#profile-name").value = profile.full_name || "";
       document.querySelector("#profile-company").value = profile.company || "";
       document.querySelector("#profile-display-rating").textContent =
         Number.isInteger(profile.rating) && profile.rating >= 1 && profile.rating <= 10 ? `${profile.rating}/10` : "Not rated";
       document.querySelector("#profile-display-vip").textContent = profile.vip_status === true ? "Yes" : "No";
       setProfileEditing(false);
+    }
+
+    async function loadProfile(user) {
+      const profileFields = "id, account_type, full_name, company, rating, vip_status";
+      const { data, error } = await supabase
+        .from("profile")
+        .select(profileFields)
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (data) return data;
+
+      const metadata = user.user_metadata || {};
+      const accountType = ["business", "freelancer"].includes(metadata.account_type)
+        ? metadata.account_type
+        : "business";
+      const { data: createdProfile, error: insertError } = await supabase
+        .from("profile")
+        .insert({
+          id: user.id,
+          account_type: accountType,
+          full_name: metadata.full_name || "",
+          company: metadata.company || ""
+        })
+        .select(profileFields)
+        .single();
+
+      if (!insertError) return createdProfile;
+
+      const { data: existingProfile, error: retryError } = await supabase
+        .from("profile")
+        .select(profileFields)
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!retryError && existingProfile) return existingProfile;
+      throw insertError;
     }
 
     function setProfileEditing(editing) {
@@ -280,6 +317,8 @@
 
       if (!data.session) {
         showPanel("auth");
+        currentUser = null;
+        currentProfile = null;
         entries.replaceChildren();
         setStatus("Connected. Sign in to continue.", "success");
         return;
@@ -287,8 +326,9 @@
 
       showPanel("data");
       document.querySelector("#signed-in-user").textContent = `Signed in as ${data.session.user.email || "user"}`;
-      showProfile(data.session.user);
       try {
+        currentProfile = await loadProfile(data.session.user);
+        showProfile(data.session.user, currentProfile);
         await readTexts();
         setStatus("Connected. Your entries are loaded.", "success");
       } catch (readError) {
@@ -370,19 +410,22 @@
       const button = document.querySelector("#profile-edit-button");
       button.disabled = true;
       try {
-        const { data, error } = await supabase.auth.updateUser({
-          data: {
-            ...currentUser.user_metadata,
+        const { data, error } = await supabase
+          .from("profile")
+          .update({
             full_name: document.querySelector("#profile-name").value.trim(),
             company: document.querySelector("#profile-company").value.trim()
-          }
-        });
+          })
+          .eq("id", currentUser.id)
+          .select("id, account_type, full_name, company, rating, vip_status")
+          .single();
         if (error) {
           reportError(error);
           return;
         }
 
-        showProfile(data.user);
+        currentProfile = data;
+        showProfile(currentUser, currentProfile);
         setStatus("Profile saved.", "success");
       } catch (error) {
         reportError(error);
