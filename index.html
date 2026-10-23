@@ -69,6 +69,10 @@
 
     button:disabled { cursor: wait; opacity: .6; }
 
+    .role-options { display: flex; gap: 16px; margin: 12px 0; }
+    .role-options label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; }
+    .role-options input { width: auto; padding: 0; }
+
     .hint, #status { color: #526257; }
     #status { min-height: 1.5em; }
     #status.error { color: #a52323; }
@@ -98,30 +102,35 @@
 </head>
 <body>
   <main>
-    <h1>Supabase test</h1>
+    <h1>VIBE Freelance</h1>
     <p>Sign in, save a text entry, and read your own entries back.</p>
     <p id="status" role="status" aria-live="polite"></p>
 
     <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
-      <h2 id="auth-heading">2. Sign in</h2>
-      <p class="hint">Create a test user or sign in with an existing account. If email confirmation is enabled, confirm the signup before signing in.</p>
+      <h2 id="auth-heading">Sign in</h2>
+      <p class="hint">Sign in or create your freelancer market account.</p>
       <form id="auth-form">
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required>
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="current-password" minlength="6" required>
         <button type="submit" name="action" value="signin">Sign in</button>
-        <button class="secondary" type="submit" name="action" value="signup">Create test user</button>
+        <fieldset class="role-options">
+          <legend>Join as</legend>
+          <label><input type="radio" name="account-type" value="business" checked> Business</label>
+          <label><input type="radio" name="account-type" value="freelancer"> Freelancer</label>
+        </fieldset>
+        <button class="secondary" type="submit" name="action" value="signup">Register</button>
       </form>
     </section>
 
     <section id="data-panel" class="card" aria-labelledby="data-heading" hidden>
-      <h2 id="data-heading">3. Save and read text</h2>
+      <h2 id="data-heading">Save and read text</h2>
       <p id="signed-in-user" class="hint"></p>
       <form id="text-form">
         <label for="text-content">Text to save</label>
         <textarea id="text-content" maxlength="5000" required placeholder="Write a test message..."></textarea>
-        <button type="submit">Save text</button>
+        <button type="submit">Save</button>
         <button id="refresh-button" class="secondary" type="button">Read again</button>
         <button id="sign-out-button" class="secondary" type="button">Sign out</button>
       </form>
@@ -235,9 +244,14 @@
       const button = event.submitter;
       const email = document.querySelector("#email").value.trim();
       const passwordInput = document.querySelector("#password");
+      const accountType = document.querySelector('input[name="account-type"]:checked').value;
       try {
         const result = button.value === "signup"
-          ? await supabase.auth.signUp({ email, password: passwordInput.value })
+          ? await supabase.auth.signUp({
+            email,
+            password: passwordInput.value,
+            options: { data: { account_type: accountType } }
+          })
           : await supabase.auth.signInWithPassword({ email, password: passwordInput.value });
         passwordInput.value = "";
 
