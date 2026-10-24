@@ -188,16 +188,17 @@
       </section>
       <form id="text-form">
         <h3>Create VIBE</h3>
+        <label for="vibe-categories">Categories</label>
+        <input id="vibe-categories" type="text" maxlength="500" placeholder="Design, Development, Writing">
         <label for="vibe-project">Project</label>
         <input id="vibe-project" type="text" maxlength="200" required>
-        <label for="vibe-price">Price ($)</label>
-        <input id="vibe-price" type="number" min="0" step="0.01" required>
-        <label for="vibe-categories">Categories (comma-separated)</label>
-        <input id="vibe-categories" type="text" maxlength="500" placeholder="Design, Development, Writing">
         <label for="vibe-prompt">Prompt</label>
         <textarea id="vibe-prompt" maxlength="5000" required placeholder="Describe what you need..."></textarea>
         <label for="vibe-other">Other</label>
         <textarea id="vibe-other" maxlength="5000" placeholder="Additional details (optional)..."></textarea>
+        <label for="vibe-price">Price ($)</label>
+        <input id="vibe-price" type="number" min="0" step="0.01" required>
+
         <button type="submit">Create VIBE</button>
         <button id="refresh-button" class="secondary" type="button">Read again</button>
       </form>
@@ -325,7 +326,7 @@
       if (!supabase) return;
       const { data, error } = await supabase
         .from("vibes")
-        .select("id, content, project, prompt, other, categories, price, created_at")
+        .select("id, content, project, prompt, categories, price, other, created_at")
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -343,32 +344,34 @@
       for (const item of data) {
         const article = document.createElement("article");
         article.className = "entry";
-        const time = document.createElement("time");
-        time.dateTime = item.created_at;
-        time.textContent = new Date(item.created_at).toLocaleString();
-        const content = document.createElement("div");
+        const categories = document.createElement("p");
+        categories.textContent = `Categories: ${item.categories}`;
+        article.append(categories);
         const project = document.createElement("p");
         project.textContent = `Project: ${item.project || "Not set"}`;
         const price = document.createElement("p");
         price.textContent = `Price: $${Number(item.price).toFixed(2)}`;
         const prompt = document.createElement("p");
+        const content = document.createElement("div");
+
         prompt.textContent = `Prompt: ${item.prompt || item.content}`;
-        article.append(time, project, price, prompt);
-        if (item.categories) {
-          const categories = document.createElement("p");
-          categories.textContent = `Categories: ${item.categories}`;
-          article.append(categories);
-        }
-        if (item.other) {
-          const other = document.createElement("p");
-          other.textContent = `Other: ${item.other}`;
-          article.append(other);
-        }
+
         const deleteButton = document.createElement("button");
         deleteButton.className = "secondary";
         deleteButton.type = "button";
         deleteButton.textContent = "Delete";
         deleteButton.setAttribute("aria-label", `Delete VIBE: ${item.project || "Untitled"}`);
+        const time = document.createElement("time");
+        time.dateTime = item.created_at;
+        time.textContent = new Date(item.created_at).toLocaleString();
+        article.append(project, prompt);
+        if (item.other) {
+          const other = document.createElement("p");
+          other.textContent = `Other: ${item.other}`;
+          article.append(other);
+        }
+        article.append(price, time);
+
         deleteButton.addEventListener("click", async () => {
           if (!supabase || !currentUser) {
             setStatus("Sign in before deleting a VIBE.", "error");
