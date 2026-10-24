@@ -55,7 +55,7 @@
       font-weight: 600;
     }
 
-    input, textarea, button {
+    input, textarea, select, button {
       width: 100%;
       padding: 10px 12px;
       border: 1px solid #bdcbbf;
@@ -209,7 +209,19 @@
           <button id="refresh-button" class="secondary" type="button">Read again</button>
         </form>
       </section>
-      <h3>VIBEs</h3>
+      <div class="account-row">
+        <h3>VIBEs</h3>
+        <label id="vibe-filter-label" for="vibe-category-filter" hidden>
+          Category
+          <select id="vibe-category-filter">
+            <option value="All" selected>All</option>
+            <option value="WEB">WEB</option>
+            <option value="Programs">Programs</option>
+            <option value="Game">Game</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+      </div>
       <div id="entries" aria-live="polite"></div>
     </section>
     <p id="status" role="status" aria-live="polite"></p>
@@ -331,9 +343,14 @@
 
     async function readTexts() {
       if (!supabase) return;
-      const { data, error } = await supabase
+      const categoryFilter = document.querySelector("#vibe-category-filter").value;
+      let query = supabase
         .from("vibes")
-        .select("id, content, project, prompt, categories, price, other, created_at")
+        .select("id, content, project, prompt, categories, price, other, created_at");
+      if (currentProfile?.account_type === "freelancer" && categoryFilter !== "All") {
+        query = query.eq("categories", categoryFilter);
+      }
+      const { data, error } = await query
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -344,7 +361,9 @@
         const empty = document.createElement("p");
         empty.className = "hint";
         empty.textContent = currentProfile?.account_type === "freelancer"
-          ? "No VIBEs are available yet."
+          ? categoryFilter === "All"
+            ? "No VIBEs are available yet."
+            : `No VIBEs found in ${categoryFilter}.`
           : "No VIBEs yet. Create one above.";
         entries.append(empty);
         return;
@@ -428,6 +447,8 @@
         currentUser = null;
         currentProfile = null;
         document.querySelector("#create-vibe-section").hidden = true;
+        document.querySelector("#vibe-filter-label").hidden = true;
+        document.querySelector("#vibe-category-filter").value = "All";
         const headerUserName = document.querySelector("#header-user-name");
         headerUserName.textContent = "";
         headerUserName.hidden = true;
@@ -444,6 +465,9 @@
         currentProfile = await loadProfile(data.session.user);
         document.querySelector("#create-vibe-section").hidden =
           currentProfile.account_type !== "business";
+        document.querySelector("#vibe-filter-label").hidden =
+          currentProfile.account_type !== "freelancer";
+        document.querySelector("#vibe-category-filter").value = "All";
         showProfile(data.session.user, currentProfile);
         await readTexts();
         setStatus("Connected. Your entries are loaded.", "success");
@@ -506,6 +530,13 @@
 
     document.querySelector("#signin-mode").addEventListener("click", () => setAuthMode("signin"));
     document.querySelector("#register-mode").addEventListener("click", () => setAuthMode("register"));
+    document.querySelector("#vibe-category-filter").addEventListener("change", async () => {
+      try {
+        await readTexts();
+      } catch (error) {
+        reportError(error);
+      }
+    });
 
     document.querySelector("#header-user-name").addEventListener("click", (event) => {
       const button = event.currentTarget;
