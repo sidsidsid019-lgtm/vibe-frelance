@@ -48,7 +48,7 @@ alter table public.vibes enable row level security;
 
 revoke all on table public.vibes from public, anon, authenticated;
 grant usage on schema public to authenticated;
-grant select, insert on table public.vibes to authenticated;
+grant select, insert, delete on table public.vibes to authenticated;
 
 drop policy if exists "Users can read their own test text" on public.vibes;
 drop policy if exists "Users can read their own VIBEs" on public.vibes;
@@ -65,6 +65,13 @@ create policy "Users can insert their own VIBEs"
   for insert
   to authenticated
   with check ((select auth.uid()) = user_id);
+
+drop policy if exists "Users can delete their own VIBEs" on public.vibes;
+create policy "Users can delete their own VIBEs"
+  on public.vibes
+  for delete
+  to authenticated
+  using ((select auth.uid()) = user_id);
 
 create table if not exists public.profile (
   id uuid primary key references auth.users (id) on delete cascade,
