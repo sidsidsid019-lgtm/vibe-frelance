@@ -52,11 +52,20 @@ grant select, insert, delete on table public.vibes to authenticated;
 
 drop policy if exists "Users can read their own test text" on public.vibes;
 drop policy if exists "Users can read their own VIBEs" on public.vibes;
-create policy "Users can read their own VIBEs"
+drop policy if exists "Users can read VIBEs by role" on public.vibes;
+create policy "Users can read VIBEs by role"
   on public.vibes
   for select
   to authenticated
-  using ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = user_id
+    or exists (
+      select 1
+      from public.profile
+      where id = (select auth.uid())
+        and account_type = 'freelancer'
+    )
+  );
 
 drop policy if exists "Users can insert their own test text" on public.vibes;
 drop policy if exists "Users can insert their own VIBEs" on public.vibes;
@@ -64,14 +73,30 @@ create policy "Users can insert their own VIBEs"
   on public.vibes
   for insert
   to authenticated
-  with check ((select auth.uid()) = user_id);
+  with check (
+    (select auth.uid()) = user_id
+    and exists (
+      select 1
+      from public.profile
+      where id = (select auth.uid())
+        and account_type = 'business'
+    )
+  );
 
 drop policy if exists "Users can delete their own VIBEs" on public.vibes;
 create policy "Users can delete their own VIBEs"
   on public.vibes
   for delete
   to authenticated
-  using ((select auth.uid()) = user_id);
+  using (
+    (select auth.uid()) = user_id
+    and exists (
+      select 1
+      from public.profile
+      where id = (select auth.uid())
+        and account_type = 'business'
+    )
+  );
 
 create table if not exists public.profile (
   id uuid primary key references auth.users (id) on delete cascade,
