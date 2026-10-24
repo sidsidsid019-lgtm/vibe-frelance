@@ -190,7 +190,13 @@
         <h3>Create VIBE</h3>
         <form id="text-form">
           <label for="vibe-categories">Categories</label>
-          <input id="vibe-categories" type="text" maxlength="500" placeholder="Design, Development, Writing">
+          <select id="vibe-categories" required>
+            <option value="" selected disabled>Select a category</option>
+            <option value="WEB">WEB</option>
+            <option value="Programs">Programs</option>
+            <option value="Game">Game</option>
+            <option value="Other">Other</option>
+          </select>
           <label for="vibe-project">Project</label>
           <input id="vibe-project" type="text" maxlength="200" required>
           <label for="vibe-prompt">Prompt</label>
