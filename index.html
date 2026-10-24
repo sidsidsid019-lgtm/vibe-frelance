@@ -186,23 +186,24 @@
         <p><strong>Rating:</strong> <span id="profile-display-rating"></span></p>
         <p><strong>VIP:</strong> <span id="profile-display-vip"></span></p>
       </section>
-      <form id="text-form">
+      <section id="create-vibe-section" hidden>
         <h3>Create VIBE</h3>
-        <label for="vibe-categories">Categories</label>
-        <input id="vibe-categories" type="text" maxlength="500" placeholder="Design, Development, Writing">
-        <label for="vibe-project">Project</label>
-        <input id="vibe-project" type="text" maxlength="200" required>
-        <label for="vibe-prompt">Prompt</label>
-        <textarea id="vibe-prompt" maxlength="5000" required placeholder="Describe what you need..."></textarea>
-        <label for="vibe-other">Other</label>
-        <textarea id="vibe-other" maxlength="5000" placeholder="Additional details (optional)..."></textarea>
-        <label for="vibe-price">Price ($)</label>
-        <input id="vibe-price" type="number" min="0" step="0.01" required>
-
-        <button type="submit">Create VIBE</button>
-        <button id="refresh-button" class="secondary" type="button">Read again</button>
-      </form>
-      <h3>Your latest entries</h3>
+        <form id="text-form">
+          <label for="vibe-categories">Categories</label>
+          <input id="vibe-categories" type="text" maxlength="500" placeholder="Design, Development, Writing">
+          <label for="vibe-project">Project</label>
+          <input id="vibe-project" type="text" maxlength="200" required>
+          <label for="vibe-prompt">Prompt</label>
+          <textarea id="vibe-prompt" maxlength="5000" required placeholder="Describe what you need..."></textarea>
+          <label for="vibe-other">Other</label>
+          <textarea id="vibe-other" maxlength="5000" placeholder="Additional details (optional)..."></textarea>
+          <label for="vibe-price">Price ($)</label>
+          <input id="vibe-price" type="number" min="0" step="0.01" required>
+          <button type="submit">Create VIBE</button>
+          <button id="refresh-button" class="secondary" type="button">Read again</button>
+        </form>
+      </section>
+      <h3>VIBEs</h3>
       <div id="entries" aria-live="polite"></div>
     </section>
     <p id="status" role="status" aria-live="polite"></p>
@@ -336,7 +337,9 @@
       if (!data.length) {
         const empty = document.createElement("p");
         empty.className = "hint";
-        empty.textContent = "No VIBEs yet. Create one above.";
+        empty.textContent = currentProfile?.account_type === "freelancer"
+          ? "No VIBEs are available yet."
+          : "No VIBEs yet. Create one above.";
         entries.append(empty);
         return;
       }
@@ -356,11 +359,6 @@
 
         prompt.textContent = `Prompt: ${item.prompt || item.content}`;
 
-        const deleteButton = document.createElement("button");
-        deleteButton.className = "secondary";
-        deleteButton.type = "button";
-        deleteButton.textContent = "Delete";
-        deleteButton.setAttribute("aria-label", `Delete VIBE: ${item.project || "Untitled"}`);
         const time = document.createElement("time");
         time.dateTime = item.created_at;
         time.textContent = new Date(item.created_at).toLocaleString();
@@ -372,34 +370,41 @@
         }
         article.append(price, time);
 
-        deleteButton.addEventListener("click", async () => {
-          if (!supabase || !currentUser) {
-            setStatus("Sign in before deleting a VIBE.", "error");
-            return;
-          }
-          if (!window.confirm("Delete this VIBE? This cannot be undone.")) return;
-
-          deleteButton.disabled = true;
-          try {
-            const { error } = await supabase
-              .from("vibes")
-              .delete()
-              .eq("id", item.id)
-              .eq("user_id", currentUser.id);
-            if (error) {
-              reportError(error);
+        if (currentProfile?.account_type === "business") {
+          const deleteButton = document.createElement("button");
+          deleteButton.className = "secondary";
+          deleteButton.type = "button";
+          deleteButton.textContent = "Delete";
+          deleteButton.setAttribute("aria-label", `Delete VIBE: ${item.project || "Untitled"}`);
+          deleteButton.addEventListener("click", async () => {
+            if (!supabase || !currentUser) {
+              setStatus("Sign in before deleting a VIBE.", "error");
               return;
             }
+            if (!window.confirm("Delete this VIBE? This cannot be undone.")) return;
 
-            await readTexts();
-            setStatus("VIBE deleted.", "success");
-          } catch (error) {
-            reportError(error);
-          } finally {
-            deleteButton.disabled = false;
-          }
-        });
-        article.append(deleteButton);
+            deleteButton.disabled = true;
+            try {
+              const { error } = await supabase
+                .from("vibes")
+                .delete()
+                .eq("id", item.id)
+                .eq("user_id", currentUser.id);
+              if (error) {
+                reportError(error);
+                return;
+              }
+
+              await readTexts();
+              setStatus("VIBE deleted.", "success");
+            } catch (error) {
+              reportError(error);
+            } finally {
+              deleteButton.disabled = false;
+            }
+          });
+          article.append(deleteButton);
+        }
         entries.append(article);
       }
     }
@@ -416,6 +421,7 @@
         showPanel("auth");
         currentUser = null;
         currentProfile = null;
+        document.querySelector("#create-vibe-section").hidden = true;
         const headerUserName = document.querySelector("#header-user-name");
         headerUserName.textContent = "";
         headerUserName.hidden = true;
@@ -430,6 +436,8 @@
       document.querySelector("#signed-in-user").textContent = `Signed in as ${data.session.user.email || "user"}`;
       try {
         currentProfile = await loadProfile(data.session.user);
+        document.querySelector("#create-vibe-section").hidden =
+          currentProfile.account_type !== "business";
         showProfile(data.session.user, currentProfile);
         await readTexts();
         setStatus("Connected. Your entries are loaded.", "success");
@@ -545,6 +553,10 @@
 
     textForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (currentProfile?.account_type !== "business") {
+        setStatus("Only business accounts can create VIBEs.", "error");
+        return;
+      }
       const project = document.querySelector("#vibe-project").value.trim();
       const price = Number(document.querySelector("#vibe-price").value);
       const categories = document.querySelector("#vibe-categories").value.trim();
