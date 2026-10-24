@@ -364,6 +364,39 @@
           other.textContent = `Other: ${item.other}`;
           article.append(other);
         }
+        const deleteButton = document.createElement("button");
+        deleteButton.className = "secondary";
+        deleteButton.type = "button";
+        deleteButton.textContent = "Delete";
+        deleteButton.setAttribute("aria-label", `Delete VIBE: ${item.project || "Untitled"}`);
+        deleteButton.addEventListener("click", async () => {
+          if (!supabase || !currentUser) {
+            setStatus("Sign in before deleting a VIBE.", "error");
+            return;
+          }
+          if (!window.confirm("Delete this VIBE? This cannot be undone.")) return;
+
+          deleteButton.disabled = true;
+          try {
+            const { error } = await supabase
+              .from("vibes")
+              .delete()
+              .eq("id", item.id)
+              .eq("user_id", currentUser.id);
+            if (error) {
+              reportError(error);
+              return;
+            }
+
+            await readTexts();
+            setStatus("VIBE deleted.", "success");
+          } catch (error) {
+            reportError(error);
+          } finally {
+            deleteButton.disabled = false;
+          }
+        });
+        article.append(deleteButton);
         entries.append(article);
       }
     }
