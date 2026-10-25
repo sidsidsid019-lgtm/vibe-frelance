@@ -72,7 +72,7 @@
       width: auto;
       margin: 10px 8px 0 0;
       border-color: #176b3a;
-      background: #176b3a;
+      background: #356943;
       color: white;
       cursor: pointer;
     }
@@ -132,8 +132,11 @@
     }
     .chat-section h4 { margin: 0 0 10px; }
     .chat-thread-options { display: grid; gap: 6px; margin-top: 8px; }
+    #chat-thread-selector[hidden] { display: none; }
+    #chat-thread-options[hidden] {  }
     .chat-thread-option { width: 100%; margin: 0; text-align: left; }
-    .chat-thread-option[aria-pressed="true"] { background: #124f2d; }
+    .chat-thread-option[aria-pressed="true"] { background: #124f2d; color: white; }
+    .chat-thread-option[aria-pressed="false"] { background: #d7ffe9; color: black; }
     .chat-thread-option span { display: block; font-size: .85rem; opacity: .85; }
     .chat-messages {
       max-height: 320px;
@@ -166,7 +169,7 @@
   <main>
     <header class="page-header">
       <a href="./" aria-label="VIBE Freelance home"><h1>VIBE Freelance</h1></a>
-      <button id="header-user-name" class="hint" type="button" aria-controls="profile-panel" aria-expanded="false" hidden></button>
+      <button id="header-user-name" class="hint" type="button" aria-controls="profile-panel" aria-expanded="true" ></button>
     </header>
 
     <section id="auth-panel" class="card" aria-labelledby="auth-heading" hidden>
@@ -266,10 +269,8 @@
         <section class="chat-section" aria-labelledby="vibe-chat-heading">
           <h4 id="vibe-chat-heading">Private chat</h4>
           <p id="vibe-chat-description" class="hint"></p>
-          <details id="chat-thread-selector" hidden>
-            <summary id="chat-thread-summary">Select freelancer conversation</summary>
-            <div id="chat-thread-options" class="chat-thread-options"></div>
-          </details>
+          <button id="chat-thread-selector" class="secondary" type="button" aria-expanded="false" aria-controls="chat-thread-options" hidden>Select freelancer conversation</button>
+          <div id="chat-thread-options" class="chat-thread-options" hidden></div>
           <div id="vibe-chat-messages" class="chat-messages" aria-live="polite"></div>
           <form id="vibe-chat-form" class="chat-form">
             <fieldset id="vibe-chat-controls" disabled>
@@ -298,7 +299,6 @@
     const status = document.querySelector("#status");
     const vibeChatMessages = document.querySelector("#vibe-chat-messages");
     const chatThreadSelector = document.querySelector("#chat-thread-selector");
-    const chatThreadSummary = document.querySelector("#chat-thread-summary");
     const chatThreadOptions = document.querySelector("#chat-thread-options");
     const chatControls = document.querySelector("#vibe-chat-controls");
     const chatForm = document.querySelector("#vibe-chat-form");
@@ -480,11 +480,24 @@
         .order("created_at", { ascending: false });
       if (threadsError) throw threadsError;
 
+      const threadsWithCounts = await Promise.all(threads.map(async (thread) => {
+        const { count, error } = await supabase
+          .from("chat_messages")
+          .select("id", { count: "exact", head: true })
+          .eq("vibe_id", detailVibeId)
+          .eq("freelancer_id", thread.freelancer_id);
+        if (error) throw error;
+        return { ...thread, messageCount: count };
+      }));
+
       chatThreadOptions.replaceChildren();
-      if (!threads.length) {
-        chatThreadSummary.textContent = "No freelancer conversations yet";
+      if (!threadsWithCounts.length) {
+        chatThreadSelector.textContent = "No freelancer conversations yet";
+        chatThreadSelector.disabled = true;
         activeChatFreelancerId = null;
         chatControls.disabled = true;
+        chatThreadOptions.hidden = true;
+        chatThreadSelector.setAttribute("aria-expanded", "false");
         vibeChatMessages.replaceChildren();
         const empty = document.createElement("p");
         empty.className = "hint";
@@ -493,24 +506,29 @@
         return;
       }
 
-      for (const thread of threads) {
+      for (const thread of threadsWithCounts) {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "chat-thread-option";
         button.dataset.freelancerId = thread.freelancer_id;
         button.setAttribute("aria-pressed", String(thread.freelancer_id === activeChatFreelancerId));
+        button.setAttribute("aria-label", `${thread.freelancer_name || "Name not set"}, ${thread.freelancer_company || "Company not set"}, ${thread.messageCount} messages`);
         button.append(document.createTextNode(thread.freelancer_name || "Name not set"));
         const company = document.createElement("span");
         company.textContent = thread.freelancer_company || "Company not set";
-        button.append(company);
+        const count = document.createElement("span");
+        count.textContent = `${thread.messageCount} ${thread.messageCount === 1 ? "message" : "messages"}`;
+        button.append(company, count);
         chatThreadOptions.append(button);
       }
 
-      if (!threads.some((thread) => thread.freelancer_id === activeChatFreelancerId)) {
-        activeChatFreelancerId = threads[0].freelancer_id;
+      if (!threadsWithCounts.some((thread) => thread.freelancer_id === activeChatFreelancerId)) {
+        activeChatFreelancerId = threadsWithCounts[0].freelancer_id;
       }
-      const selectedThread = threads.find((thread) => thread.freelancer_id === activeChatFreelancerId);
-      chatThreadSummary.textContent = `${selectedThread.freelancer_name || "Name not set"} — ${selectedThread.freelancer_company || "Company not set"}`;
+      const selectedThread = threadsWithCounts.find((thread) => thread.freelancer_id === activeChatFreelancerId);
+      chatThreadSelector.textContent = `${selectedThread.freelancer_name || "Name not set"} — ${selectedThread.freelancer_company || "Company not set"}`;
+      chatThreadSelector.disabled = false;
+      chatThreadOptions.hidden = chatThreadSelector.getAttribute("aria-expanded") !== "true";
       for (const button of chatThreadOptions.querySelectorAll(".chat-thread-option")) {
         button.setAttribute("aria-pressed", String(button.dataset.freelancerId === activeChatFreelancerId));
       }
@@ -984,13 +1002,20 @@
       const button = event.target.closest(".chat-thread-option");
       if (!button) return;
       activeChatFreelancerId = button.dataset.freelancerId;
-      chatThreadSelector.open = false;
+      chatThreadOptions.hidden = true;
+      chatThreadSelector.setAttribute("aria-expanded", "false");
       chatControls.disabled = !activeChatFreelancerId;
       try {
         await readChatThreads();
       } catch (error) {
         reportError(error);
       }
+    });
+
+    chatThreadSelector.addEventListener("click", () => {
+      const expanded = chatThreadSelector.getAttribute("aria-expanded") === "true";
+      chatThreadSelector.setAttribute("aria-expanded", String(!expanded));
+      chatThreadOptions.hidden = expanded;
     });
 
     document.querySelector("#sign-out-button").addEventListener("click", async () => {
