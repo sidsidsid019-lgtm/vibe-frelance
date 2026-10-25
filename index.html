@@ -363,7 +363,7 @@
       if (!supabase || !detailVibeId) return false;
       const { data, error } = await supabase
         .from("vibes")
-        .select("id, content, project, prompt, categories, price, other, created_at")
+        .select("id, content, project, prompt, categories, price, other, author_name, author_company, created_at")
         .eq("id", detailVibeId)
         .maybeSingle();
 
@@ -385,6 +385,9 @@
         ["Price", `$${Number(data.price).toFixed(2)}`],
         ["Other", data.other]
       ];
+      if (currentProfile?.account_type === "freelancer") {
+        fields.splice(1, 0, ["Name", data.author_name || "Not set"], ["Company", data.author_company || "Not set"]);
+      }
       for (const [label, value] of fields) {
         if (label === "Other" && !value) continue;
         const paragraph = document.createElement("p");
@@ -405,7 +408,7 @@
       const categoryFilter = document.querySelector("#vibe-category-filter").value;
       let query = supabase
         .from("vibes")
-        .select("id, content, project, prompt, categories, price, other, created_at");
+        .select("id, content, project, prompt, categories, price, other, author_name, author_company, created_at");
       if (currentProfile?.account_type === "freelancer" && categoryFilter !== "All") {
         query = query.eq("categories", categoryFilter);
       }
@@ -446,6 +449,13 @@
         const categories = document.createElement("p");
         categories.textContent = `Categories: ${item.categories}`;
         article.append(categories);
+        if (currentProfile?.account_type === "freelancer") {
+          const name = document.createElement("p");
+          name.textContent = `Name: ${item.author_name || "Not set"}`;
+          const company = document.createElement("p");
+          company.textContent = `Company: ${item.author_company || "Not set"}`;
+          article.append(name, company);
+        }
         const project = document.createElement("p");
         project.textContent = `Project: ${item.project || "Not set"}`;
         const price = document.createElement("p");
@@ -688,7 +698,16 @@
       try {
         const { error } = await supabase
           .from("vibes")
-          .insert({ content: prompt, project, prompt, other, categories, price });
+          .insert({
+            content: prompt,
+            project,
+            prompt,
+            other,
+            categories,
+            price,
+            author_name: currentProfile.full_name || "",
+            author_company: currentProfile.company || ""
+          });
         if (error) {
           reportError(error);
           return;
