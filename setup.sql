@@ -30,6 +30,20 @@ alter table public.vibes
   add column if not exists author_name text not null default '',
   add column if not exists author_company text not null default '';
 
+create table if not exists public.profile (
+  id uuid primary key references auth.users (id) on delete cascade,
+  account_type text not null check (account_type in ('business', 'freelancer')),
+  full_name text not null default '',
+  company text not null default '',
+  rating smallint check (rating between 1 and 10),
+  vip_status boolean not null default false,
+  show_name_in_header boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+alter table public.profile
+  add column if not exists show_name_in_header boolean not null default false;
+
 do $$
 begin
   if not exists (
@@ -102,20 +116,6 @@ create policy "Users can delete their own VIBEs"
     )
   );
 
-create table if not exists public.profile (
-  id uuid primary key references auth.users (id) on delete cascade,
-  account_type text not null check (account_type in ('business', 'freelancer')),
-  full_name text not null default '',
-  company text not null default '',
-  rating smallint check (rating between 1 and 10),
-  vip_status boolean not null default false,
-  show_name_in_header boolean not null default false,
-  created_at timestamptz not null default now()
-);
-
-alter table public.profile
-  add column if not exists show_name_in_header boolean not null default false;
-
 update public.vibes as vibe
 set author_name = case when vibe.author_name = '' then coalesce(profile.full_name, '') else vibe.author_name end,
     author_company = case when vibe.author_company = '' then coalesce(profile.company, '') else vibe.author_company end
@@ -151,3 +151,78 @@ create policy "Users can update their own profile"
   to authenticated
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
+
+create table if not exists public.chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  vibe_id uuid references public.vibes (id) on delete cascade,
+  sender_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  sender_name text not null check (char_length(sender_name) between 1 and 100),
+  body text not null check (char_length(body) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists chat_messages_vibe_created_at_idx
+  on public.chat_messages (vibe_id, created_at);
+
+alter table public.chat_messages enable row level security;
+
+revoke all on table public.chat_messages from public, anon, authenticated;
+grant select on table public.chat_messages to authenticated;
+grant insert (vibe_id, sender_id, sender_name, body) on table public.chat_messages to authenticated;
+
+drop policy if exists "Users can read chats for visible VIBEs" on public.chat_messages;
+create policy "Users can read chats for visible VIBEs"
+  on public.chat_messages
+  for select
+  to authenticated
+  using (
+    vibe_id is null
+    or exists (
+      select 1
+      from public.vibes
+      where id = chat_messages.vibe_id
+    )
+  );
+
+drop policy if exists "Users can send chats for visible VIBEs" on public.chat_messages;
+create policy "Users can send chats for visible VIBEs"
+  on public.chat_messages
+  for insert
+  to authenticated
+  with check (
+    sender_id = (select auth.uid())
+    and sender_name = coalesce(
+      nullif((select full_name from public.profile where id = (select auth.uid())), ''),
+      'User'
+    )
+    and (
+      vibe_id is null
+      or exists (
+        select 1
+        from public.vibes
+        where id = chat_messages.vibe_id
+      )
+    )
+  );
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_publication
+    where pubname = 'supabase_realtime'
+  ) then
+    raise exception 'The supabase_realtime publication is required for live chat updates.';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'chat_messages'
+  ) then
+    alter publication supabase_realtime add table public.chat_messages;
+  end if;
+end
+$$;
