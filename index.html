@@ -125,6 +125,32 @@
       font-size: .85rem;
     }
 
+    .chat-section {
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #e3eae4;
+    }
+    .chat-section h4 { margin: 0 0 10px; }
+    .chat-messages {
+      max-height: 320px;
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid #d7e1d9;
+      border-radius: 8px;
+      background: #f7faf7;
+    }
+    .chat-message {
+      padding: 8px 0;
+      border-bottom: 1px solid #e3eae4;
+      overflow-wrap: anywhere;
+      white-space: pre-wrap;
+    }
+    .chat-message:last-child { border-bottom: 0; }
+    .chat-message-header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
+    .chat-message-header time { color: #64736a; font-size: .85rem; }
+    .chat-message p { margin: 4px 0 0; }
+    .chat-form textarea { min-height: 72px; }
+
     code {
       padding: 2px 5px;
       border-radius: 4px;
@@ -233,6 +259,25 @@
       <section id="vibe-detail" aria-labelledby="vibe-detail-heading" hidden>
         <h3 id="vibe-detail-heading">VIBE</h3>
         <div id="vibe-detail-content"></div>
+        <section class="chat-section" aria-labelledby="vibe-chat-heading">
+          <h4 id="vibe-chat-heading">VIBE discussion</h4>
+          <div id="vibe-chat-messages" class="chat-messages" aria-live="polite"></div>
+          <form id="vibe-chat-form" class="chat-form">
+            <label for="vibe-chat-input">Message about this VIBE</label>
+            <textarea id="vibe-chat-input" maxlength="2000" required placeholder="Write a message..."></textarea>
+            <button type="submit">Send message</button>
+          </form>
+        </section>
+        <section class="chat-section" aria-labelledby="community-chat-heading">
+          <h4 id="community-chat-heading">Community chat</h4>
+          <p class="hint">A shared conversation for all VIBE users.</p>
+          <div id="community-chat-messages" class="chat-messages" aria-live="polite"></div>
+          <form id="community-chat-form" class="chat-form">
+            <label for="community-chat-input">Message everyone</label>
+            <textarea id="community-chat-input" maxlength="2000" required placeholder="Write a message..."></textarea>
+            <button type="submit">Send message</button>
+          </form>
+        </section>
       </section>
     </section>
     <p id="status" role="status" aria-live="polite"></p>
@@ -250,12 +295,15 @@
     const textForm = document.querySelector("#text-form");
     const entries = document.querySelector("#entries");
     const status = document.querySelector("#status");
+    const vibeChatMessages = document.querySelector("#vibe-chat-messages");
+    const communityChatMessages = document.querySelector("#community-chat-messages");
     const detailVibeId = new URLSearchParams(window.location.search).get("vibe");
     let supabase = null;
     let authMode = "signin";
     let currentUser = null;
     let currentProfile = null;
     let profileEditing = false;
+    let chatChannel = null;
 
     function setStatus(message, kind = "") {
       status.textContent = message;
@@ -357,6 +405,118 @@
       const url = new URL(window.location.href);
       url.searchParams.set("vibe", vibeId);
       window.open(url.href, "_blank", "noopener,noreferrer");
+    }
+
+    async function readChatMessages(vibeId, container) {
+      if (!supabase || !currentUser) return;
+
+      let query = supabase
+        .from("chat_messages")
+        .select("id, sender_id, sender_name, body, created_at, vibe_id");
+      query = vibeId === null
+        ? query.is("vibe_id", null)
+        : query.eq("vibe_id", vibeId);
+      const { data, error } = await query
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (error) throw error;
+
+      container.replaceChildren();
+      if (!data.length) {
+        const empty = document.createElement("p");
+        empty.className = "hint";
+        empty.textContent = "No messages yet. Start the conversation.";
+        container.append(empty);
+        return;
+      }
+
+      for (const message of data.reverse()) {
+        const article = document.createElement("article");
+        article.className = "chat-message";
+        const header = document.createElement("div");
+        header.className = "chat-message-header";
+        const sender = document.createElement("strong");
+        sender.textContent = message.sender_name;
+        const time = document.createElement("time");
+        time.dateTime = message.created_at;
+        time.textContent = new Date(message.created_at).toLocaleString();
+        const body = document.createElement("p");
+        body.textContent = message.body;
+        header.append(sender, time);
+        article.append(header, body);
+        container.append(article);
+      }
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function startChatRealtime() {
+      if (!supabase || !currentUser || !detailVibeId || chatChannel) return;
+
+      chatChannel = supabase
+        .channel(`vibe-chat-${currentUser.id}-${detailVibeId}`)
+        .on("postgres_changes", {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages"
+        }, (payload) => {
+          const message = payload.new;
+          const refreshes = [];
+          if (message.vibe_id === detailVibeId) {
+            refreshes.push(readChatMessages(detailVibeId, vibeChatMessages));
+          }
+          if (message.vibe_id === null) {
+            refreshes.push(readChatMessages(null, communityChatMessages));
+          }
+          Promise.all(refreshes).catch(reportError);
+        })
+        .subscribe((channelStatus) => {
+          if (channelStatus === "CHANNEL_ERROR" || channelStatus === "TIMED_OUT") {
+            reportError(new Error("Live chat updates could not be connected."));
+          }
+        });
+    }
+
+    async function stopChatRealtime() {
+      if (!supabase || !chatChannel) return;
+      const channel = chatChannel;
+      chatChannel = null;
+      await supabase.removeChannel(channel);
+    }
+
+    function bindChatForm(form, vibeId, container) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!supabase || !currentUser || !currentProfile) {
+          setStatus("Sign in before sending a chat message.", "error");
+          return;
+        }
+
+        const input = form.querySelector("textarea");
+        const body = input.value.trim();
+        if (!body) return;
+
+        const button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        try {
+          const { error } = await supabase
+            .from("chat_messages")
+            .insert({
+              vibe_id: vibeId,
+              sender_id: currentUser.id,
+              sender_name: (currentProfile.full_name || "User").slice(0, 100),
+              body
+            });
+          if (error) throw error;
+
+          input.value = "";
+          await readChatMessages(vibeId, container);
+        } catch (error) {
+          reportError(error);
+        } finally {
+          button.disabled = false;
+        }
+      });
     }
 
     async function readVibeDetail() {
@@ -524,6 +684,7 @@
       }
 
       if (!data.session) {
+        await stopChatRealtime();
         showPanel("auth");
         currentUser = null;
         currentProfile = null;
@@ -561,9 +722,14 @@
           document.querySelector("#profile-panel").classList.remove("visible");
           document.querySelector("#vibe-detail-heading").textContent = "VIBE details";
           if (!await readVibeDetail()) return;
-        } else {
-          await readTexts();
-        }
+            await Promise.all([
+              readChatMessages(detailVibeId, vibeChatMessages),
+              readChatMessages(null, communityChatMessages)
+            ]);
+            startChatRealtime();
+          } else {
+            await readTexts();
+          }
         setStatus("Connected. Your entries are loaded.", "success");
       } catch (readError) {
         reportError(readError);
@@ -729,6 +895,9 @@
         reportError(error);
       }
     });
+
+    bindChatForm(document.querySelector("#vibe-chat-form"), detailVibeId, vibeChatMessages);
+    bindChatForm(document.querySelector("#community-chat-form"), null, communityChatMessages);
 
     document.querySelector("#sign-out-button").addEventListener("click", async () => {
       try {
