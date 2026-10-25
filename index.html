@@ -260,22 +260,19 @@
         <h3 id="vibe-detail-heading">VIBE</h3>
         <div id="vibe-detail-content"></div>
         <section class="chat-section" aria-labelledby="vibe-chat-heading">
-          <h4 id="vibe-chat-heading">VIBE discussion</h4>
+          <h4 id="vibe-chat-heading">Private chat</h4>
+          <p id="vibe-chat-description" class="hint"></p>
+          <label id="chat-thread-label" for="chat-thread-selector" hidden>Freelancer conversations</label>
+          <select id="chat-thread-selector" hidden>
+            <option value="">No freelancer has started a chat yet.</option>
+          </select>
           <div id="vibe-chat-messages" class="chat-messages" aria-live="polite"></div>
           <form id="vibe-chat-form" class="chat-form">
-            <label for="vibe-chat-input">Message about this VIBE</label>
-            <textarea id="vibe-chat-input" maxlength="2000" required placeholder="Write a message..."></textarea>
-            <button type="submit">Send message</button>
-          </form>
-        </section>
-        <section class="chat-section" aria-labelledby="community-chat-heading">
-          <h4 id="community-chat-heading">Community chat</h4>
-          <p class="hint">A shared conversation for all VIBE users.</p>
-          <div id="community-chat-messages" class="chat-messages" aria-live="polite"></div>
-          <form id="community-chat-form" class="chat-form">
-            <label for="community-chat-input">Message everyone</label>
-            <textarea id="community-chat-input" maxlength="2000" required placeholder="Write a message..."></textarea>
-            <button type="submit">Send message</button>
+            <fieldset id="vibe-chat-controls" disabled>
+              <label for="vibe-chat-input">Message</label>
+              <textarea id="vibe-chat-input" maxlength="2000" required placeholder="Write a message..."></textarea>
+              <button type="submit">Send message</button>
+            </fieldset>
           </form>
         </section>
       </section>
@@ -296,7 +293,10 @@
     const entries = document.querySelector("#entries");
     const status = document.querySelector("#status");
     const vibeChatMessages = document.querySelector("#vibe-chat-messages");
-    const communityChatMessages = document.querySelector("#community-chat-messages");
+    const chatThreadSelector = document.querySelector("#chat-thread-selector");
+    const chatThreadLabel = document.querySelector("#chat-thread-label");
+    const chatControls = document.querySelector("#vibe-chat-controls");
+    const chatForm = document.querySelector("#vibe-chat-form");
     const detailVibeId = new URLSearchParams(window.location.search).get("vibe");
     let supabase = null;
     let authMode = "signin";
@@ -304,6 +304,7 @@
     let currentProfile = null;
     let profileEditing = false;
     let chatChannel = null;
+    let activeChatFreelancerId = null;
 
     function setStatus(message, kind = "") {
       status.textContent = message;
@@ -407,31 +408,31 @@
       window.open(url.href, "_blank", "noopener,noreferrer");
     }
 
-    async function readChatMessages(vibeId, container) {
-      if (!supabase || !currentUser) return;
+    async function readChatMessages() {
+      if (!supabase || !currentUser || !detailVibeId || !activeChatFreelancerId) return;
 
-      let query = supabase
+      const { data, error } = await supabase
         .from("chat_messages")
-        .select("id, sender_id, sender_name, body, created_at, vibe_id");
-      query = vibeId === null
-        ? query.is("vibe_id", null)
-        : query.eq("vibe_id", vibeId);
-      const { data, error } = await query
-        .order("created_at", { ascending: false })
+        .select("id, sender_id, sender_name, body, created_at")
+        .eq("vibe_id", detailVibeId)
+        .eq("freelancer_id", activeChatFreelancerId)
+        .order("created_at", { ascending: true })
         .limit(100);
 
       if (error) throw error;
 
-      container.replaceChildren();
+      vibeChatMessages.replaceChildren();
       if (!data.length) {
         const empty = document.createElement("p");
         empty.className = "hint";
-        empty.textContent = "No messages yet. Start the conversation.";
-        container.append(empty);
+        empty.textContent = currentProfile?.account_type === "freelancer"
+          ? "Send a message to start a private conversation with the VIBE owner."
+          : "This conversation has no messages yet.";
+        vibeChatMessages.append(empty);
         return;
       }
 
-      for (const message of data.reverse()) {
+      for (const message of data) {
         const article = document.createElement("article");
         article.className = "chat-message";
         const header = document.createElement("div");
@@ -445,9 +446,65 @@
         body.textContent = message.body;
         header.append(sender, time);
         article.append(header, body);
-        container.append(article);
+        vibeChatMessages.append(article);
       }
-      container.scrollTop = container.scrollHeight;
+      vibeChatMessages.scrollTop = vibeChatMessages.scrollHeight;
+    }
+
+    async function readChatThreads() {
+      if (!supabase || !currentUser || !detailVibeId) return;
+
+      const isFreelancer = currentProfile?.account_type === "freelancer";
+      const description = document.querySelector("#vibe-chat-description");
+      chatThreadSelector.hidden = isFreelancer;
+      chatThreadLabel.hidden = isFreelancer;
+      chatControls.disabled = false;
+
+      if (isFreelancer) {
+        activeChatFreelancerId = currentUser.id;
+        description.textContent = "Only you and the VIBE owner can see this conversation.";
+        chatControls.disabled = false;
+        await readChatMessages();
+        return;
+      }
+
+      description.textContent = "Select a freelancer's private conversation to reply.";
+      const { data: threads, error: threadsError } = await supabase
+        .from("chat_threads")
+        .select("freelancer_id, created_at")
+        .eq("vibe_id", detailVibeId)
+        .order("created_at", { ascending: false });
+      if (threadsError) throw threadsError;
+
+      chatThreadSelector.replaceChildren();
+      if (!threads.length) {
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "No freelancer has started a chat yet.";
+        chatThreadSelector.append(emptyOption);
+        activeChatFreelancerId = null;
+        chatControls.disabled = true;
+        vibeChatMessages.replaceChildren();
+        const empty = document.createElement("p");
+        empty.className = "hint";
+        empty.textContent = "Freelancer conversations will appear here when started.";
+        vibeChatMessages.append(empty);
+        return;
+      }
+
+      for (const thread of threads) {
+        const option = document.createElement("option");
+        option.value = thread.freelancer_id;
+        option.textContent = `Freelancer conversation — ${new Date(thread.created_at).toLocaleDateString()}`;
+        chatThreadSelector.append(option);
+      }
+
+      if (!threads.some((thread) => thread.freelancer_id === activeChatFreelancerId)) {
+        activeChatFreelancerId = threads[0].freelancer_id;
+      }
+      chatThreadSelector.value = activeChatFreelancerId;
+      chatControls.disabled = false;
+      await readChatMessages();
     }
 
     function startChatRealtime() {
@@ -461,14 +518,15 @@
           table: "chat_messages"
         }, (payload) => {
           const message = payload.new;
-          const refreshes = [];
-          if (message.vibe_id === detailVibeId) {
-            refreshes.push(readChatMessages(detailVibeId, vibeChatMessages));
-          }
-          if (message.vibe_id === null) {
-            refreshes.push(readChatMessages(null, communityChatMessages));
-          }
-          Promise.all(refreshes).catch(reportError);
+          if (message.vibe_id !== detailVibeId) return;
+          const refresh = async () => {
+            if (currentProfile?.account_type === "business") {
+              await readChatThreads();
+            } else if (message.freelancer_id === currentUser?.id) {
+              await readChatMessages();
+            }
+          };
+          refresh().catch(reportError);
         })
         .subscribe((channelStatus) => {
           if (channelStatus === "CHANNEL_ERROR" || channelStatus === "TIMED_OUT") {
@@ -484,40 +542,56 @@
       await supabase.removeChannel(channel);
     }
 
-    function bindChatForm(form, vibeId, container) {
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        if (!supabase || !currentUser || !currentProfile) {
-          setStatus("Sign in before sending a chat message.", "error");
-          return;
-        }
+    chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!supabase || !currentUser || !currentProfile) {
+        setStatus("Sign in before sending a chat message.", "error");
+        return;
+      }
+      if (currentProfile.account_type === "freelancer") {
+        activeChatFreelancerId = currentUser.id;
+      }
+      if (!activeChatFreelancerId) {
+        setStatus("Select a freelancer conversation before replying.", "error");
+        return;
+      }
 
-        const input = form.querySelector("textarea");
-        const body = input.value.trim();
-        if (!body) return;
+      const input = document.querySelector("#vibe-chat-input");
+      const body = input.value.trim();
+      if (!body) return;
 
-        const button = form.querySelector('button[type="submit"]');
-        button.disabled = true;
-        try {
-          const { error } = await supabase
-            .from("chat_messages")
+      const button = chatForm.querySelector('button[type="submit"]');
+      button.disabled = true;
+      try {
+        if (currentProfile.account_type === "freelancer") {
+          const { error: threadError } = await supabase
+            .from("chat_threads")
             .insert({
-              vibe_id: vibeId,
-              sender_id: currentUser.id,
-              sender_name: (currentProfile.full_name || "User").slice(0, 100),
-              body
+              vibe_id: detailVibeId,
+              freelancer_id: currentUser.id
             });
-          if (error) throw error;
-
-          input.value = "";
-          await readChatMessages(vibeId, container);
-        } catch (error) {
-          reportError(error);
-        } finally {
-          button.disabled = false;
+          if (threadError && threadError.code !== "23505") throw threadError;
         }
-      });
-    }
+
+        const { error } = await supabase
+          .from("chat_messages")
+          .insert({
+            vibe_id: detailVibeId,
+            freelancer_id: activeChatFreelancerId,
+            sender_id: currentUser.id,
+            sender_name: (currentProfile.full_name || "User").slice(0, 100),
+            body
+          });
+        if (error) throw error;
+
+        input.value = "";
+        await readChatThreads();
+      } catch (error) {
+        reportError(error);
+      } finally {
+        button.disabled = false;
+      }
+    });
 
     async function readVibeDetail() {
       if (!supabase || !detailVibeId) return false;
@@ -722,14 +796,11 @@
           document.querySelector("#profile-panel").classList.remove("visible");
           document.querySelector("#vibe-detail-heading").textContent = "VIBE details";
           if (!await readVibeDetail()) return;
-            await Promise.all([
-              readChatMessages(detailVibeId, vibeChatMessages),
-              readChatMessages(null, communityChatMessages)
-            ]);
-            startChatRealtime();
-          } else {
-            await readTexts();
-          }
+          await readChatThreads();
+          startChatRealtime();
+        } else {
+          await readTexts();
+        }
         setStatus("Connected. Your entries are loaded.", "success");
       } catch (readError) {
         reportError(readError);
@@ -896,8 +967,15 @@
       }
     });
 
-    bindChatForm(document.querySelector("#vibe-chat-form"), detailVibeId, vibeChatMessages);
-    bindChatForm(document.querySelector("#community-chat-form"), null, communityChatMessages);
+    chatThreadSelector.addEventListener("change", async () => {
+      activeChatFreelancerId = chatThreadSelector.value || null;
+      chatControls.disabled = !activeChatFreelancerId;
+      try {
+        await readChatMessages();
+      } catch (error) {
+        reportError(error);
+      }
+    });
 
     document.querySelector("#sign-out-button").addEventListener("click", async () => {
       try {
