@@ -152,40 +152,119 @@ create policy "Users can update their own profile"
   using ((select auth.uid()) = id)
   with check ((select auth.uid()) = id);
 
+create table if not exists public.chat_threads (
+  vibe_id uuid not null references public.vibes (id) on delete cascade,
+  freelancer_id uuid not null references auth.users (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (vibe_id, freelancer_id)
+);
+
+alter table public.chat_threads enable row level security;
+
+revoke all on table public.chat_threads from public, anon, authenticated;
+grant select, insert on table public.chat_threads to authenticated;
+
+drop policy if exists "Freelancers can read their VIBE chats and owners can read all" on public.chat_threads;
+create policy "Freelancers can read their VIBE chats and owners can read all"
+  on public.chat_threads
+  for select
+  to authenticated
+  using (
+    (
+      freelancer_id = (select auth.uid())
+      and exists (
+        select 1
+        from public.profile
+        where id = (select auth.uid())
+          and account_type = 'freelancer'
+      )
+    )
+    or exists (
+      select 1
+      from public.vibes
+      where vibes.id = chat_threads.vibe_id
+        and vibes.user_id = (select auth.uid())
+    )
+  );
+
+drop policy if exists "Freelancers can start their own VIBE chats" on public.chat_threads;
+create policy "Freelancers can start their own VIBE chats"
+  on public.chat_threads
+  for insert
+  to authenticated
+  with check (
+    freelancer_id = (select auth.uid())
+    and exists (
+      select 1
+      from public.profile
+      where id = (select auth.uid())
+        and account_type = 'freelancer'
+    )
+    and exists (
+      select 1
+      from public.vibes
+      where vibes.id = chat_threads.vibe_id
+        and vibes.user_id <> (select auth.uid())
+    )
+  );
+
 create table if not exists public.chat_messages (
   id uuid primary key default gen_random_uuid(),
-  vibe_id uuid references public.vibes (id) on delete cascade,
+  vibe_id uuid not null references public.vibes (id) on delete cascade,
+  freelancer_id uuid not null references auth.users (id) on delete cascade,
   sender_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   sender_name text not null check (char_length(sender_name) between 1 and 100),
   body text not null check (char_length(body) between 1 and 2000),
   created_at timestamptz not null default now()
 );
 
-create index if not exists chat_messages_vibe_created_at_idx
-  on public.chat_messages (vibe_id, created_at);
+alter table public.chat_messages
+  add column if not exists freelancer_id uuid references auth.users (id) on delete cascade;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.chat_messages'::regclass
+      and conname = 'chat_messages_thread_fkey'
+  ) then
+    alter table public.chat_messages
+      add constraint chat_messages_thread_fkey
+      foreign key (vibe_id, freelancer_id)
+      references public.chat_threads (vibe_id, freelancer_id)
+      on delete cascade;
+  end if;
+end
+$$;
+
+create index if not exists chat_messages_thread_created_at_idx
+  on public.chat_messages (vibe_id, freelancer_id, created_at);
 
 alter table public.chat_messages enable row level security;
 
 revoke all on table public.chat_messages from public, anon, authenticated;
 grant select on table public.chat_messages to authenticated;
-grant insert (vibe_id, sender_id, sender_name, body) on table public.chat_messages to authenticated;
+grant insert (vibe_id, freelancer_id, sender_id, sender_name, body) on table public.chat_messages to authenticated;
 
 drop policy if exists "Users can read chats for visible VIBEs" on public.chat_messages;
-create policy "Users can read chats for visible VIBEs"
+drop policy if exists "Users can send chats for visible VIBEs" on public.chat_messages;
+drop policy if exists "Participants can read private VIBE chat messages" on public.chat_messages;
+create policy "Participants can read private VIBE chat messages"
   on public.chat_messages
   for select
   to authenticated
   using (
-    vibe_id is null
-    or exists (
+    exists (
       select 1
-      from public.vibes
-      where id = chat_messages.vibe_id
+      from public.chat_threads as thread
+      where thread.vibe_id = chat_messages.vibe_id
+        and thread.freelancer_id = chat_messages.freelancer_id
     )
   );
 
-drop policy if exists "Users can send chats for visible VIBEs" on public.chat_messages;
-create policy "Users can send chats for visible VIBEs"
+drop policy if exists "Participants can send private VIBE chat messages" on public.chat_messages;
+create policy "Participants can send private VIBE chat messages"
   on public.chat_messages
   for insert
   to authenticated
@@ -195,13 +274,30 @@ create policy "Users can send chats for visible VIBEs"
       nullif((select full_name from public.profile where id = (select auth.uid())), ''),
       'User'
     )
-    and (
-      vibe_id is null
-      or exists (
-        select 1
-        from public.vibes
-        where id = chat_messages.vibe_id
-      )
+    and exists (
+      select 1
+      from public.chat_threads as thread
+      where thread.vibe_id = chat_messages.vibe_id
+        and thread.freelancer_id = chat_messages.freelancer_id
+        and (
+          (
+            thread.freelancer_id = (select auth.uid())
+            and exists (
+              select 1
+              from public.profile
+              where id = (select auth.uid())
+                and account_type = 'freelancer'
+            )
+          )
+          or exists (
+            select 1
+            from public.vibes
+            join public.profile on profile.id = vibes.user_id
+            where vibes.id = thread.vibe_id
+              and vibes.user_id = (select auth.uid())
+              and profile.account_type = 'business'
+          )
+        )
     )
   );
 
