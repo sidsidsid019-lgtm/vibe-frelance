@@ -155,9 +155,23 @@ create policy "Users can update their own profile"
 create table if not exists public.chat_threads (
   vibe_id uuid not null references public.vibes (id) on delete cascade,
   freelancer_id uuid not null references auth.users (id) on delete cascade,
+  freelancer_name text not null default '',
+  freelancer_company text not null default '',
   created_at timestamptz not null default now(),
   primary key (vibe_id, freelancer_id)
 );
+
+alter table public.chat_threads
+  add column if not exists freelancer_name text not null default '',
+  add column if not exists freelancer_company text not null default '';
+
+update public.chat_threads as thread
+set freelancer_name = coalesce(profile.full_name, ''),
+    freelancer_company = coalesce(profile.company, '')
+from public.profile as profile
+where profile.id = thread.freelancer_id
+  and thread.freelancer_name = ''
+  and thread.freelancer_company = '';
 
 alter table public.chat_threads enable row level security;
 
@@ -199,6 +213,8 @@ create policy "Freelancers can start their own VIBE chats"
       from public.profile
       where id = (select auth.uid())
         and account_type = 'freelancer'
+        and full_name = chat_threads.freelancer_name
+        and company = chat_threads.freelancer_company
     )
     and exists (
       select 1
