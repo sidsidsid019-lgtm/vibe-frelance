@@ -16,6 +16,8 @@ create table if not exists public.vibes (
   other text not null default '',
   categories text not null default '',
   price numeric(10,2) not null default 0 check (price >= 0),
+  author_name text not null default '',
+  author_company text not null default '',
   created_at timestamptz not null default now()
 );
 
@@ -24,7 +26,9 @@ alter table public.vibes
   add column if not exists prompt text not null default '',
   add column if not exists other text not null default '',
   add column if not exists categories text not null default '',
-  add column if not exists price numeric(10,2) not null default 0;
+  add column if not exists price numeric(10,2) not null default 0,
+  add column if not exists author_name text not null default '',
+  add column if not exists author_company text not null default '';
 
 do $$
 begin
@@ -111,6 +115,13 @@ create table if not exists public.profile (
 
 alter table public.profile
   add column if not exists show_name_in_header boolean not null default false;
+
+update public.vibes as vibe
+set author_name = case when vibe.author_name = '' then coalesce(profile.full_name, '') else vibe.author_name end,
+    author_company = case when vibe.author_company = '' then coalesce(profile.company, '') else vibe.author_company end
+from public.profile as profile
+where profile.id = vibe.user_id
+  and (vibe.author_name = '' or vibe.author_company = '');
 
 alter table public.profile enable row level security;
 
